@@ -1,51 +1,47 @@
-const WebSocket = require('ws');
 const http = require('http');
+const socketIO = require('socket.io');
 
-// Configuration
-const PORT = process.env.PORT || 8080;
-const HOST = process.env.HOST || '0.0.0.0';
-
-// Create HTTP server
+const PORT = process.env.PORT || 10000;
 const server = http.createServer();
-const wss = new WebSocket.Server({ server });
-
-// Start server
-server.listen(PORT, HOST, () => {
-  console.log(`🚀 WebSocket server running on port ${PORT}`);
+const io = socketIO(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
 });
 
-// WebSocket connection handler
-wss.on('connection', (ws) => {
-  console.log('🔌 New client connected');
+server.listen(PORT, () => {
+  console.log(`🚀 Socket.IO server running on port ${PORT}`);
+});
+
+io.on('connection', (socket) => {
+  console.log(`🔌 New client connected: ${socket.id}`);
   
-  ws.send(JSON.stringify({
-    type: 'status',
-    message: 'Connected to WebSocket server',
-    timestamp: Date.now()
-  }));
-
-  ws.on('message', (message) => {
-    console.log(`📩 Received: ${message}`);
-    ws.send(JSON.stringify({
-      type: 'echo',
-      message: message.toString(),
-      timestamp: Date.now()
-    }));
+  // Send welcome message
+  socket.emit('welcome', {
+    message: 'Connected to Socket.IO server',
+    timestamp: Date.now(),
+    clientId: socket.id
   });
 
-  ws.on('close', () => console.log('❌ Client disconnected'));
+  // Handle messages from ESP32
+  socket.on('esp32_message', (data) => {
+    console.log(`📩 Received from ${socket.id}:`, data);
+    
+    // Echo back with additional data
+    socket.emit('echo', {
+      original: data,
+      timestamp: Date.now(),
+      server: 'Render'
+    });
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`❌ Client disconnected: ${socket.id}`);
+  });
 });
 
-// Keep-alive for Render
+// Keep-alive
 setInterval(() => {
-  wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.ping();
-    }
-  });
+  io.emit('ping', { timestamp: Date.now() });
 }, 25000);
-
-// Error handling
-server.on('error', (error) => {
-  console.error('⚠️ Server Error:', error);
-});
