@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ESP32 Position Monitor</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #positions { 
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 15px;
+    }
+    .position-card {
+      border: 1px solid #ddd;
+      padding: 15px;
+      border-radius: 5px;
+      background: #f9f9f9;
+    }
+    .position-card h3 { margin-top: 0; }
+    .position-card p { margin: 5px 0; }
+  </style>
+</head>
+<body>
+  <h1>ESP32 Position Monitor</h1>
+  <div id="positions"></div>
+
+  <script>
+    const ws = new WebSocket(`ws://${window.location.hostname}:${window.location.port || 10000}`);
+    const positionsDiv = document.getElementById('positions');
+    
+    ws.onopen = () => {
+      console.log('Connected to WebSocket server');
+    };
+    
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.event === 'position_update') {
+        updatePositionDisplay(data.data);
+      }
+    };
+    
+    function updatePositionDisplay(position) {
+      let card = document.getElementById(`pos-${position.clientId}`);
+      if (!card) {
+        card = document.createElement('div');
+        card.className = 'position-card';
+        card.id = `pos-${position.clientId}`;
+        positionsDiv.appendChild(card);
+      }
+      
+      card.innerHTML = `
+        <h3>Robot ${position.clientId}</h3>
+        <p><strong>Position:</strong> X: ${position.x.toFixed(2)}, Y: ${position.y.toFixed(2)}</p>
+        <p><strong>Heading:</strong> ${position.heading.toFixed(1)}°</p>
+        <p><small>Last update: ${new Date(position.timestamp).toLocaleTimeString()}</small></p>
+      `;
+    }
+  </script>
+</body>
+</html>
