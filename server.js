@@ -1,190 +1,100 @@
 const http = require('http');
 const WebSocket = require('ws');
-const fs = require('fs');
-const path = require('path');
 
-// Configuration
-const PORT = process.env.PORT || 10000;
-const MAX_CLIENTS = 10;
-const POSITION_HISTORY_SIZE = 100;
-const MAX_UPDATE_RATE = 10; // Updates per second
-
-// Create HTTP server
 const server = http.createServer((req, res) => {
-  // Serve simple HTML page for testing
-  if (req.url === '/') {
-    fs.readFile(path.join(__dirname, 'index.html'), (err, data) => {
-      if (err) {
-        res.writeHead(500);
-        return res.end('Error loading index.html');
-      }
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(data);
-    });
-  } else {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('ESP32 WebSocket Server');
-  }
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('ESP32 WebSocket Server');
 });
 
-// Create WebSocket server
 const wss = new WebSocket.Server({ 
   server,
-  maxPayload: 1024 // Limit message size to 1KB
+  clientTracking: true,
+  perMessageDeflate: {
+    zlibDeflateOptions: {
+      chunkSize: 1024,
+      memLevel: 7,
+      level: 3
+    },
+    zlibInflateOptions: {
+      chunkSize: 10 * 1024
+    },
+    threshold: 1024,
+    concurrencyLimit: 10
+  }
 });
 
-// Store client data and position history
-const clients = new Map();
-const positionHistory = [];
+// Environment variable for Render
+const PORT = process.env.PORT || 10000;
 
-// WebSocket connection handler
 wss.on('connection', (ws, req) => {
-  if (clients.size >= MAX_CLIENTS) {
-    ws.close(1008, 'Server at maximum capacity');
-    return;
-  }
-
-  const clientId = Date.now();
   const clientIp = req.socket.remoteAddress;
-  const clientData = {
-    id: clientId,
-    ip: clientIp,
-    lastUpdate: 0,
-    updateCount: 0,
-    lastReset: Date.now()
-  };
+  console.log(`New client connected from ${clientIp}`);
 
-  clients.set(clientId, clientData);
-  console.log(`Client ${clientId} connected from ${clientIp}`);
-
-  // Send connection acknowledgement
-  ws.send(JSON.stringify({
-    event: 'connection_ack',
-    data: {
-      clientId,
-      timestamp: Date.now(),
-      maxUpdateRate: MAX_UPDATE_RATE
-    }
-  }));
-
-  // Message handler
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
+      console.log('Received:', data);
       
-      // Rate limiting
-      const now = Date.now();
-      if (now - clientData.lastReset > 1000) {
-        clientData.updateCount = 0;
-        clientData.lastReset = now;
-      }
-      
-      if (clientData.updateCount++ > MAX_UPDATE_RATE) {
-        ws.send(JSON.stringify({
-          event: 'error',
-          data: {
-            code: 429,
-            message: "Update rate too high",
-            maxUpdates: MAX_UPDATE_RATE
-          }
+      // Handle different message types
+      if(data.type === 'auth') {
+        ws.send(JSON.stringify({ type: 'auth_ack', status: 'authenticated' }));
+      } else if(data.type === 'update') {
+        ws.send(JSON.stringify({ 
+          type: 'update_ack',
+          received: Date.now(),
+          data: data.data
         }));
-        return;
       }
-
-      // Handle position updates
-      if (data.event === 'position_update') {
-        // Validate data
-        if (typeof data.data?.x !== 'number' || 
-            typeof data.data?.y !== 'number' || 
-            typeof data.data?.heading !== 'number') {
-          throw new Error('Invalid position data');
-        }
-
-        // Store update
-        clientData.lastUpdate = now;
-        const positionData = {
-          clientId,
-          timestamp: now,
-          x: data.data.x,
-          y: data.data.y,
-          heading: data.data.heading
-        };
-
-        // Add to history (rotating buffer)
-        positionHistory.push(positionData);
-        if (positionHistory.length > POSITION_HISTORY_SIZE) {
-          positionHistory.shift();
-        }
-
-        // Send acknowledgement
-        ws.send(JSON.stringify({
-          event: 'position_ack',
-          data: {
-            timestamp: data.data.timestamp || now,
-            received: now
-          }
-        }));
-
-        console.log(`Position update from ${clientId}:`, {
-          x: positionData.x.toFixed(2),
-          y: positionData.y.toFixed(2),
-          heading: positionData.heading.toFixed(1)
-        });
-      }
-
-      // Add handlers for other event types as needed
-
     } catch (err) {
-      console.error(`Error processing message from ${clientId}:`, err.message);
-      ws.send(JSON.stringify({
-        event: 'error',
-        data: {
-          code: 400,
-          message: 'Invalid message format',
-          error: err.message
-        }
+      console.error('Error processing message:', err);
+      ws.send(JSON.stringify({ 
+        type: 'error',
+        message: 'Invalid message format'
       }));
     }
   });
 
-  // Error handler
-  ws.on('error', (err) => {
-    console.error(`Client ${clientId} error:`, err.message);
+  ws.on('close', () => {
+    console.log(`Client from ${clientIp} disconnected`);
   });
 
-  // Connection closed
-  ws.on('close', () => {
-    clients.delete(clientId);
-    console.log(`Client ${clientId} disconnected`);
-  });
+  // Send welcome message
+  ws.send(JSON.stringify({
+    type: 'welcome',
+    message: 'Connected to WebSocket server',
+    timestamp: Date.now()
+  }));
 });
 
-// Cleanup inactive clients
-setInterval(() => {
-  const now = Date.now();
-  clients.forEach((client, clientId) => {
-    if (now - client.lastUpdate > 30000) { // 30 seconds inactivity
-      const ws = wss.clients.get(clientId);
-      if (ws) ws.close(1001, 'Inactive timeout');
-      clients.delete(clientId);
-      console.log(`Disconnected inactive client ${clientId}`);
-    }
-  });
-}, 10000);
+// Handle Render's port scanning
+server.on('listening', () => {
+  const addr = server.address();
+  console.log(`Server listening on ${addr.address}:${addr.port}`);
+  
+  // This helps Render detect the HTTP server
+  if(process.env.RENDER) {
+    const keepAlive = http.createServer((req, res) => {
+      res.writeHead(200);
+      res.end('Render keep-alive');
+    });
+    keepAlive.listen(8080, '0.0.0.0');
+  }
+});
 
-// Start server
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`WebSocket endpoint: ws://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`WebSocket server started on port ${PORT}`);
 });
 
 // Graceful shutdown
-process.on('SIGINT', () => {
-  console.log('\nShutting down server...');
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down gracefully...');
   wss.clients.forEach(client => {
-    client.close(1001, 'Server shutdown');
+    if(client.readyState === WebSocket.OPEN) {
+      client.close(1001, 'Server shutting down');
+    }
   });
   server.close(() => {
+    console.log('Server closed');
     process.exit(0);
   });
 });
