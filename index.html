@@ -1,59 +1,106 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>ESP32 Position Monitor</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    #positions { 
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: 15px;
-    }
-    .position-card {
-      border: 1px solid #ddd;
-      padding: 15px;
-      border-radius: 5px;
-      background: #f9f9f9;
-    }
-    .position-card h3 { margin-top: 0; }
-    .position-card p { margin: 5px 0; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        #status {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 15px;
+            margin-right: 10px;
+            cursor: pointer;
+        }
+        #map {
+            width: 500px;
+            height: 500px;
+            border: 1px solid #000;
+            position: relative;
+            margin-top: 20px;
+        }
+        #robot {
+            width: 20px;
+            height: 20px;
+            background-color: red;
+            border-radius: 50%;
+            position: absolute;
+            transform: translate(-50%, -50%);
+        }
+    </style>
 </head>
 <body>
-  <h1>ESP32 Position Monitor</h1>
-  <div id="positions"></div>
+    <h1>Robot Control Dashboard</h1>
+    
+    <div id="status">
+        <p>Status: <span id="connection-status">Disconnected</span></p>
+        <p>Position: X=<span id="pos-x">0</span>, Y=<span id="pos-y">0</span></p>
+        <p>Heading: <span id="heading">0</span>°</p>
+    </div>
+    
+    <div class="controls">
+        <button onclick="sendCommand('forward')">Forward</button>
+        <button onclick="sendCommand('backward')">Backward</button>
+        <button onclick="sendCommand('left')">Left</button>
+        <button onclick="sendCommand('right')">Right</button>
+        <button onclick="sendCommand('stop')">Stop</button>
+    </div>
+    
+    <div id="map">
+        <div id="robot"></div>
+    </div>
 
-  <script>
-    const ws = new WebSocket(`ws://${window.location.hostname}:${window.location.port || 10000}`);
-    const positionsDiv = document.getElementById('positions');
-    
-    ws.onopen = () => {
-      console.log('Connected to WebSocket server');
-    };
-    
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.event === 'position_update') {
-        updatePositionDisplay(data.data);
-      }
-    };
-    
-    function updatePositionDisplay(position) {
-      let card = document.getElementById(`pos-${position.clientId}`);
-      if (!card) {
-        card = document.createElement('div');
-        card.className = 'position-card';
-        card.id = `pos-${position.clientId}`;
-        positionsDiv.appendChild(card);
-      }
-      
-      card.innerHTML = `
-        <h3>Robot ${position.clientId}</h3>
-        <p><strong>Position:</strong> X: ${position.x.toFixed(2)}, Y: ${position.y.toFixed(2)}</p>
-        <p><strong>Heading:</strong> ${position.heading.toFixed(1)}°</p>
-        <p><small>Last update: ${new Date(position.timestamp).toLocaleTimeString()}</small></p>
-      `;
-    }
-  </script>
+    <script>
+        const ws = new WebSocket(`wss://${window.location.host}`);
+        const robot = document.getElementById('robot');
+        
+        ws.onopen = () => {
+            console.log('Connected to WebSocket server');
+            document.getElementById('connection-status').textContent = 'Connected';
+        };
+        
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            
+            if (data.type === 'position') {
+                // Update position display
+                document.getElementById('pos-x').textContent = data.data.x.toFixed(2);
+                document.getElementById('pos-y').textContent = data.data.y.toFixed(2);
+                document.getElementById('heading').textContent = data.data.heading.toFixed(2);
+                
+                // Update robot position on map (scaled down)
+                const map = document.getElementById('map');
+                const scale = 5; // 1cm = 5px
+                robot.style.left = `${250 + (data.data.x * scale)}px`;
+                robot.style.top = `${250 - (data.data.y * scale)}px`;
+                robot.style.transform = `translate(-50%, -50%) rotate(${data.data.heading}deg)`;
+            }
+        };
+        
+        ws.onclose = () => {
+            console.log('Disconnected from WebSocket server');
+            document.getElementById('connection-status').textContent = 'Disconnected';
+        };
+        
+        function sendCommand(command) {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ command }));
+            } else {
+                alert('Not connected to server');
+            }
+        }
+    </script>
 </body>
 </html>
