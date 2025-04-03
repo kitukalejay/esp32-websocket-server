@@ -5,38 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Robot Dashboard</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-        }
-        #status {
-            margin: 20px 0;
-            padding: 15px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            background-color: #f9f9f9;
-        }
-        .controls {
-            margin: 20px 0;
-        }
-        button {
-            padding: 10px 15px;
-            margin-right: 10px;
-            cursor: pointer;
-        }
-        #map {
-            width: 500px;
-            height: 500px;
-            border: 1px solid #000;
-            position: relative;
-            margin-top: 20px;
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #status { padding: 15px; background: #f0f0f0; border-radius: 5px; }
+        .control-panel { margin: 20px 0; }
+        button { padding: 10px 15px; margin-right: 10px; }
+        #map { 
+            width: 500px; height: 500px; border: 1px solid #000;
+            position: relative; margin-top: 20px;
         }
         #robot {
-            width: 20px;
-            height: 20px;
-            background-color: red;
-            border-radius: 50%;
-            position: absolute;
+            width: 20px; height: 20px; background: red;
+            border-radius: 50%; position: absolute;
             transform: translate(-50%, -50%);
         }
     </style>
@@ -46,11 +25,11 @@
     
     <div id="status">
         <p>Status: <span id="connection-status">Disconnected</span></p>
-        <p>Position: X=<span id="pos-x">0</span>, Y=<span id="pos-y">0</span></p>
-        <p>Heading: <span id="heading">0</span>°</p>
+        <p>Position: X=<span id="pos-x">0.00</span>cm, Y=<span id="pos-y">0.00</span>cm</p>
+        <p>Heading: <span id="heading">0.00</span>°</p>
     </div>
     
-    <div class="controls">
+    <div class="control-panel">
         <button onclick="sendCommand('forward')">Forward</button>
         <button onclick="sendCommand('backward')">Backward</button>
         <button onclick="sendCommand('left')">Left</button>
@@ -67,36 +46,36 @@
         const robot = document.getElementById('robot');
         
         ws.onopen = () => {
-            console.log('Connected to WebSocket server');
+            console.log('Connected to server');
             document.getElementById('connection-status').textContent = 'Connected';
         };
         
         ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            
-            if (data.type === 'position') {
-                // Update position display
-                document.getElementById('pos-x').textContent = data.data.x.toFixed(2);
-                document.getElementById('pos-y').textContent = data.data.y.toFixed(2);
-                document.getElementById('heading').textContent = data.data.heading.toFixed(2);
+            try {
+                const data = JSON.parse(event.data);
                 
-                // Update robot position on map (scaled down)
-                const map = document.getElementById('map');
-                const scale = 5; // 1cm = 5px
-                robot.style.left = `${250 + (data.data.x * scale)}px`;
-                robot.style.top = `${250 - (data.data.y * scale)}px`;
-                robot.style.transform = `translate(-50%, -50%) rotate(${data.data.heading}deg)`;
+                // Update display
+                document.getElementById('pos-x').textContent = data.x.toFixed(2);
+                document.getElementById('pos-y').textContent = data.y.toFixed(2);
+                document.getElementById('heading').textContent = data.heading.toFixed(2);
+                
+                // Update robot position (1cm = 5px)
+                const scale = 5;
+                robot.style.left = `${250 + data.x * scale}px`;
+                robot.style.top = `${250 - data.y * scale}px`;
+                robot.style.transform = `translate(-50%, -50%) rotate(${data.heading}deg)`;
+            } catch (err) {
+                console.log('Received command:', event.data);
             }
         };
         
         ws.onclose = () => {
-            console.log('Disconnected from WebSocket server');
             document.getElementById('connection-status').textContent = 'Disconnected';
         };
         
-        function sendCommand(command) {
+        function sendCommand(cmd) {
             if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ command }));
+                ws.send(cmd);
             } else {
                 alert('Not connected to server');
             }

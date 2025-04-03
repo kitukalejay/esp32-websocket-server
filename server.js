@@ -1,4 +1,4 @@
-require('dotenv').config();
+// server.js
 const express = require('express');
 const WebSocket = require('ws');
 const path = require('path');
@@ -6,75 +6,59 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Serve static files from the 'public' directory
+// Middleware
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json());
 
 // Create HTTP server
 const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-// Create WebSocket server
+// WebSocket Server
 const wss = new WebSocket.Server({ server });
 
-// Store connected clients
-const clients = new Set();
-
 wss.on('connection', (ws) => {
-  console.log('New client connected');
-  clients.add(ws);
-
+  console.log('New ESP32 connected');
+  
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
-      console.log(`Received from ESP32: x=${data.x}, y=${data.y}, heading=${data.heading}`);
+      console.log(`Position update - X: ${data.x.toFixed(2)}cm, Y: ${data.y.toFixed(2)}cm, Heading: ${data.heading.toFixed(2)}°`);
       
-      // Broadcast to all clients (for a dashboard)
-      clients.forEach(client => {
-        if (client !== ws && client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify({
-            type: 'position',
-            data: data
-          }));
-        }
-      });
-
-      // Example: Send command based on position
+      // Example: Send stop command if x > 100cm
       if (data.x > 100) {
-        ws.send(JSON.stringify({ command: "stop" }));
-      } else if (data.heading > 180) {
-        ws.send(JSON.stringify({ command: "left" }));
+        ws.send('stop');
       }
-    } catch (error) {
-      console.error('Error parsing message:', error);
+    } catch (err) {
+      console.error('Error parsing message:', err);
     }
   });
 
   ws.on('close', () => {
-    console.log('Client disconnected');
-    clients.delete(ws);
+    console.log('ESP32 disconnected');
   });
 });
 
-// HTTP endpoint to send commands
-app.get('/send-command', (req, res) => {
-  const { command } = req.query;
+// HTTP API to send commands
+app.post('/send-command', (req, res) => {
+  const { command } = req.body;
   
   if (!command) {
-    return res.status(400).send('Command parameter is required');
+    return res.status(400).json({ error: 'Command is required' });
   }
-
-  // Broadcast command to all ESP32 clients
-  clients.forEach(client => {
+  
+  // Broadcast to all connected ESP32s
+  wss.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify({ command }));
+      client.send(command);
     }
   });
-
-  res.send(`Command "${command}" sent to all devices`);
+  
+  res.json({ success: true, message: `Command "${command}" sent` });
 });
 
-// Simple dashboard
-app.get('/dashboard', (req, res) => {
+// Dashboard route
+app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
 });
