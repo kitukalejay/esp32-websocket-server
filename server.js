@@ -1,14 +1,15 @@
 const http = require('http');
 const WebSocket = require('ws');
 
+// Create HTTP server (required by Render)
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('ESP32 WebSocket Server');
+  res.end('ESP32 WebSocket Server Running');
 });
 
+// WebSocket Server
 const wss = new WebSocket.Server({ 
   server,
-  clientTracking: true,
   perMessageDeflate: {
     zlibDeflateOptions: {
       chunkSize: 1024,
@@ -23,33 +24,37 @@ const wss = new WebSocket.Server({
   }
 });
 
-// Environment variable for Render
 const PORT = process.env.PORT || 10000;
 
 wss.on('connection', (ws, req) => {
   const clientIp = req.socket.remoteAddress;
   console.log(`New client connected from ${clientIp}`);
 
+  // Handle messages from ESP32
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
       console.log('Received:', data);
       
       // Handle different message types
-      if(data.type === 'auth') {
-        ws.send(JSON.stringify({ type: 'auth_ack', status: 'authenticated' }));
-      } else if(data.type === 'update') {
+      if(data.type === 'handshake') {
         ws.send(JSON.stringify({ 
+          type: 'handshake_ack',
+          status: 'connected',
+          timestamp: Date.now() 
+        }));
+      } else if(data.type === 'update') {
+        // Process update here
+        ws.send(JSON.stringify({
           type: 'update_ack',
-          received: Date.now(),
-          data: data.data
+          received: Date.now()
         }));
       }
     } catch (err) {
       console.error('Error processing message:', err);
       ws.send(JSON.stringify({ 
         type: 'error',
-        message: 'Invalid message format'
+        message: 'Invalid message format' 
       }));
     }
   });
@@ -66,28 +71,24 @@ wss.on('connection', (ws, req) => {
   }));
 });
 
-// Handle Render's port scanning
-server.on('listening', () => {
-  const addr = server.address();
-  console.log(`Server listening on ${addr.address}:${addr.port}`);
-  
-  // This helps Render detect the HTTP server
-  if(process.env.RENDER) {
-    const keepAlive = http.createServer((req, res) => {
-      res.writeHead(200);
-      res.end('Render keep-alive');
-    });
-    keepAlive.listen(8080, '0.0.0.0');
-  }
-});
-
+// Start server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`WebSocket server started on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
+  
+  // Additional HTTP server on port 8080 for Render health checks
+  if(process.env.RENDER) {
+    const healthCheckServer = http.createServer((req, res) => {
+      res.writeHead(200);
+      res.end('OK');
+    });
+    healthCheckServer.listen(8080, '0.0.0.0');
+    console.log('Health check server running on port 8080');
+  }
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('SIGTERM received. Shutting down gracefully...');
+  console.log('Shutting down gracefully...');
   wss.clients.forEach(client => {
     if(client.readyState === WebSocket.OPEN) {
       client.close(1001, 'Server shutting down');
