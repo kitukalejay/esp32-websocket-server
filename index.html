@@ -3,20 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robot Dashboard</title>
+    <title>Robot Control Dashboard</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; }
-        #status { padding: 15px; background: #f0f0f0; border-radius: 5px; }
         .control-panel { margin: 20px 0; }
-        button { padding: 10px 15px; margin-right: 10px; }
-        #map { 
-            width: 500px; height: 500px; border: 1px solid #000;
-            position: relative; margin-top: 20px;
+        button {
+            padding: 12px 24px;
+            margin: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
         }
-        #robot {
-            width: 20px; height: 20px; background: red;
-            border-radius: 50%; position: absolute;
-            transform: translate(-50%, -50%);
+        button:hover { background-color: #45a049; }
+        #status {
+            padding: 15px;
+            background-color: #f1f1f1;
+            border-radius: 4px;
+            margin-bottom: 20px;
         }
     </style>
 </head>
@@ -24,9 +30,8 @@
     <h1>Robot Control Dashboard</h1>
     
     <div id="status">
-        <p>Status: <span id="connection-status">Disconnected</span></p>
-        <p>Position: X=<span id="pos-x">0.00</span>cm, Y=<span id="pos-y">0.00</span>cm</p>
-        <p>Heading: <span id="heading">0.00</span>°</p>
+        <p>Connection Status: <span id="connection-status">Disconnected</span></p>
+        <p>Last Command: <span id="last-command">None</span></p>
     </div>
     
     <div class="control-panel">
@@ -34,51 +39,26 @@
         <button onclick="sendCommand('backward')">Backward</button>
         <button onclick="sendCommand('left')">Left</button>
         <button onclick="sendCommand('right')">Right</button>
-        <button onclick="sendCommand('stop')">Stop</button>
-    </div>
-    
-    <div id="map">
-        <div id="robot"></div>
+        <button onclick="sendCommand('stop')" style="background-color: #f44336;">Stop</button>
     </div>
 
     <script>
-        const ws = new WebSocket(`wss://${window.location.host}`);
-        const robot = document.getElementById('robot');
-        
-        ws.onopen = () => {
-            console.log('Connected to server');
-            document.getElementById('connection-status').textContent = 'Connected';
-        };
-        
-        ws.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                
-                // Update display
-                document.getElementById('pos-x').textContent = data.x.toFixed(2);
-                document.getElementById('pos-y').textContent = data.y.toFixed(2);
-                document.getElementById('heading').textContent = data.heading.toFixed(2);
-                
-                // Update robot position (1cm = 5px)
-                const scale = 5;
-                robot.style.left = `${250 + data.x * scale}px`;
-                robot.style.top = `${250 - data.y * scale}px`;
-                robot.style.transform = `translate(-50%, -50%) rotate(${data.heading}deg)`;
-            } catch (err) {
-                console.log('Received command:', event.data);
-            }
-        };
-        
-        ws.onclose = () => {
-            document.getElementById('connection-status').textContent = 'Disconnected';
-        };
-        
-        function sendCommand(cmd) {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(cmd);
-            } else {
-                alert('Not connected to server');
-            }
+        function sendCommand(command) {
+            fetch('/send-command', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ command: command })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('last-command').textContent = command;
+                console.log('Success:', data);
+            })
+            .catch((error) => {
+                console.error('Error:', error);
+            });
         }
     </script>
 </body>
